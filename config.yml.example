@@ -1,0 +1,6 @@
+# 墨问MCP工具配置文件示例
+# 请将此文件复制为 config.yml 并填入您的API密钥
+
+# 墨问API密钥
+# 请在 https://open.mowen.cn 获取您的API密钥
+api_key: "your_api_key_here"
