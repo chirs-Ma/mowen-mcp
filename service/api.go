@@ -9,8 +9,6 @@ import (
 	"net/url"
 	"os"
 	"time"
-
-	"gopkg.in/yaml.v2"
 )
 
 // API接口路径常量
@@ -27,12 +25,9 @@ const (
 const (
 	// 墨问API基础URL
 	BaseURL = "https://open.mowen.cn"
+	// 环境变量名称
+	APIKeyEnvVar = "MOWEN_API_KEY"
 )
-
-// Config 配置文件结构
-type Config struct {
-	APIKey string `yaml:"api_key"`
-}
 
 // MowenClient 墨问API客户端
 type MowenClient struct {
@@ -42,7 +37,7 @@ type MowenClient struct {
 }
 
 // NewMowenClient 创建新的墨问客户端
-// 从配置文件中读取API密钥
+// 从环境变量中读取API密钥
 func NewMowenClient() (client *MowenClient, err error) {
 	// 捕获panic并转换为error
 	defer func() {
@@ -52,8 +47,8 @@ func NewMowenClient() (client *MowenClient, err error) {
 		}
 	}()
 
-	// 读取配置文件
-	apiKey, err := loadAPIKeyFromConfig()
+	// 从环境变量读取API密钥
+	apiKey, err := loadAPIKeyFromEnv()
 	if err != nil {
 		return nil, fmt.Errorf("加载API密钥失败: %w", err)
 	}
@@ -67,8 +62,8 @@ func NewMowenClient() (client *MowenClient, err error) {
 	}, nil
 }
 
-// loadAPIKeyFromConfig 从配置文件加载API密钥
-func loadAPIKeyFromConfig() (apiKey string, err error) {
+// loadAPIKeyFromEnv 从环境变量加载API密钥
+func loadAPIKeyFromEnv() (apiKey string, err error) {
 	// 捕获panic并转换为error
 	defer func() {
 		if r := recover(); r != nil {
@@ -77,27 +72,13 @@ func loadAPIKeyFromConfig() (apiKey string, err error) {
 		}
 	}()
 
-	// 尝试读取config.yml文件
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("获取当前工作目录失败: %w", err)
-	}
-	configFile := fmt.Sprintf("%s/config.yml", wd)
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return "", fmt.Errorf("读取配置文件失败: %w", err)
+	// 从环境变量获取API密钥
+	apiKey = os.Getenv(APIKeyEnvVar)
+	if apiKey == "" {
+		return "", fmt.Errorf("环境变量 %s 未设置或为空", APIKeyEnvVar)
 	}
 
-	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return "", fmt.Errorf("解析配置文件失败: %w", err)
-	}
-
-	if config.APIKey == "" {
-		return "", fmt.Errorf("配置文件中未找到api_key")
-	}
-
-	return config.APIKey, nil
+	return apiKey, nil
 }
 
 // APIResponse 通用API响应结构
@@ -128,6 +109,8 @@ func (c *MowenClient) PostRequest(path string, payload interface{}) (*APIRespons
 		if err != nil {
 			return nil, fmt.Errorf("序列化请求体失败: %w", err)
 		}
+		// 打印请求体用于调试
+		fmt.Printf("发送的请求体: %s\n", string(jsonData))
 	}
 
 	// 创建HTTP请求

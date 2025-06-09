@@ -18,36 +18,78 @@ type TextNode struct {
 	Link      string `json:"link,omitempty"`
 }
 
-// Paragraph 表示一个段落
-type Paragraph struct {
+// QuoteNode 表示引用块节点
+type QuoteNode struct {
 	Texts []TextNode `json:"texts"`
 }
 
-// PrivacyRule 表示隐私规则
+// Paragraph 表示一个段落或引用块
+type Paragraph struct {
+	Texts []TextNode `json:"texts"`
+	Type  string     `json:"type,omitempty"` // "paragraph" 或 "quote"
+}
+
+// PrivacyRule 隐私规则
 type PrivacyRule struct {
 	NoShare  bool   `json:"noShare"`
 	ExpireAt string `json:"expireAt"`
 }
 
+// Privacy 隐私设置
+type Privacy struct {
+	Type string       `json:"type"`
+	Rule *PrivacyRule `json:"rule,omitempty"`
+}
+
+// SettingsForPrivacy 用于设置隐私的Settings结构
+type SettingsForPrivacy struct {
+	Privacy Privacy `json:"privacy"`
+}
+
+// SetNotePrivacyParams 设置笔记隐私的参数
+type SetNotePrivacyParams struct {
+	NoteID   string              `json:"noteId"`
+	Section  int                 `json:"section"`
+	Settings *SettingsForPrivacy `json:"settings"`
+}
+
+// NoteAtom 表示笔记的原子结构，对应墨问API的NoteAtom格式
+type NoteAtom struct {
+	Attrs   map[string]string `json:"attrs,omitempty"`
+	Content []NoteAtom        `json:"content,omitempty"`
+	Marks   []NoteAtom        `json:"marks,omitempty"`
+	Text    *string           `json:"text,omitempty"`
+	Type    *string           `json:"type,omitempty"`
+}
+
 // CreateNoteParams 创建笔记的参数
 type CreateNoteParams struct {
-	Paragraphs  []Paragraph `json:"paragraphs"`
-	AutoPublish bool        `json:"auto_publish"`
-	Tags        []string    `json:"tags"`
+	Body     *NoteAtom `json:"body,omitempty"`
+	Settings *Settings `json:"settings,omitempty"`
+}
+
+// Body 笔记内容
+type Body struct {
+	Attrs   map[string]string `json:"attrs,omitempty"`
+	Content []Body            `json:"content,omitempty"`
+	Marks   []Body            `json:"marks,omitempty"`
+	Text    *string           `json:"text,omitempty"`
+	Type    *string           `json:"type,omitempty"`
+}
+
+// Settings 笔记设置
+type Settings struct {
+	AutoPublish *bool    `json:"autoPublish,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Privacy     *string  `json:"privacy,omitempty"`
+	NoShare     *bool    `json:"noShare,omitempty"`
+	ExpireAt    *int64   `json:"expireAt,omitempty"`
 }
 
 // EditNoteParams 编辑笔记的参数
 type EditNoteParams struct {
 	NoteID     string      `json:"note_id"`
 	Paragraphs []Paragraph `json:"paragraphs"`
-}
-
-// SetNotePrivacyParams 设置笔记隐私的参数
-type SetNotePrivacyParams struct {
-	NoteID      string `json:"note_id"`
-	PrivacyType string `json:"privacy_type"`
-	NoShare     bool   `json:"no_share"`
-	ExpireAt    int64  `json:"expire_at"`
 }
 
 // validateRichNoteParagraphs 验证富文本笔记段落格式
@@ -57,6 +99,11 @@ func validateRichNoteParagraphs(paragraphs []Paragraph) error {
 	}
 
 	for i, para := range paragraphs {
+		// 验证段落类型
+		if para.Type != "" && para.Type != "paragraph" && para.Type != "quote" {
+			return fmt.Errorf("第%d个段落的类型必须是 'paragraph' 或 'quote'", i+1)
+		}
+
 		if len(para.Texts) == 0 {
 			return fmt.Errorf("第%d个段落的texts字段不能为空", i+1)
 		}
@@ -123,11 +170,70 @@ func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 		return mcp.NewToolResultText(errorMsg), nil
 	}
 
-	// 构建请求参数
-	payload := CreateNoteParams{
-		Paragraphs:  paragraphs,
-		AutoPublish: autoPublish,
+	// 构建请求参数 - 转换为新的API格式
+	// 创建根节点
+	// 构建请求参数 - 创建符合NoteAtom规范的根节点
+	docType := "doc"
+	body := &NoteAtom{
+		Type:    &docType,
+		Content: []NoteAtom{},
+	}
+
+	// 将paragraphs转换为NoteAtom格式
+	for _, para := range paragraphs {
+		// 确定段落类型，默认为paragraph
+		paraType := "paragraph"
+		if para.Type != "" {
+			paraType = para.Type
+		}
+
+		paragraphNode := NoteAtom{
+			Type:    &paraType,
+			Content: []NoteAtom{},
+		}
+
+		// 处理段落中的文本节点
+		for _, textNode := range para.Texts {
+			textType := "text"
+			textAtom := NoteAtom{
+				Type:  &textType,
+				Text:  &textNode.Text,
+				Marks: []NoteAtom{},
+			}
+
+			// 添加样式标记
+			if textNode.Bold {
+				boldType := "bold"
+				textAtom.Marks = append(textAtom.Marks, NoteAtom{Type: &boldType})
+			}
+			if textNode.Highlight {
+				highlightType := "highlight"
+				textAtom.Marks = append(textAtom.Marks, NoteAtom{Type: &highlightType})
+			}
+			if textNode.Link != "" {
+				linkType := "link"
+				linkAttrs := map[string]string{"href": textNode.Link}
+				textAtom.Marks = append(textAtom.Marks, NoteAtom{
+					Type:  &linkType,
+					Attrs: linkAttrs,
+				})
+			}
+
+			paragraphNode.Content = append(paragraphNode.Content, textAtom)
+		}
+
+		body.Content = append(body.Content, paragraphNode)
+	}
+
+	// 构建设置
+	settings := &Settings{
+		AutoPublish: &autoPublish,
 		Tags:        tags,
+	}
+
+	payload := CreateNoteParams{
+		Body:     body,
+		Settings: settings,
 	}
 
 	// 调用API创建笔记
@@ -144,10 +250,8 @@ func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	// 解析响应获取笔记ID
 	var noteID string
 	if resp.Body != nil {
-		if data, ok := resp.Body["data"].(map[string]interface{}); ok {
-			if id, ok := data["note_id"].(string); ok {
-				noteID = id
-			}
+		if id, ok := resp.Body["noteId"].(string); ok {
+			noteID = id
 		}
 	}
 
@@ -265,11 +369,27 @@ func SetNotePrivacy(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 	}
 
 	// 构建请求参数
+	privacy := Privacy{
+		Type: privacyType,
+	}
+
+	// 如果是规则公开，添加规则设置
+	if privacyType == "rule" {
+		expireAtStr := fmt.Sprintf("%d", int64(expireAt))
+		privacy.Rule = &PrivacyRule{
+			NoShare:  noShare,
+			ExpireAt: expireAtStr,
+		}
+	}
+
+	settings := &SettingsForPrivacy{
+		Privacy: privacy,
+	}
+
 	payload := SetNotePrivacyParams{
-		NoteID:      noteID,
-		PrivacyType: privacyType,
-		NoShare:     noShare,
-		ExpireAt:    int64(expireAt),
+		NoteID:   noteID,
+		Section:  1,
+		Settings: settings,
 	}
 
 	// 调用API设置笔记隐私
@@ -280,7 +400,8 @@ func SetNotePrivacy(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 
 	// 处理响应
 	if resp.StatusCode != 200 {
-		return mcp.NewToolResultText(fmt.Sprintf("❌ API请求失败，状态码: %d，响应: %s", resp.StatusCode, resp.RawBody)), nil
+		requestStr, _ := json.Marshal(payload)
+		return mcp.NewToolResultText(fmt.Sprintf("❌ API请求失败，状态码: %d，响应: %s，请求参数：%s", resp.StatusCode, resp.RawBody, requestStr)), nil
 	}
 
 	responseText := fmt.Sprintf("✅ 笔记隐私设置成功！\n\n笔记ID: %s\n隐私类型: %s",

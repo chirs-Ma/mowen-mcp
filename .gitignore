@@ -47,3 +47,4 @@ config.yml
 # Build artifacts
 build/
 dist/
+mowen-mcp
