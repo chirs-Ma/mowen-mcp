@@ -34,7 +34,6 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-mcp-mowen
 config.yml
 
 # Logs
@@ -48,3 +47,4 @@ config.yml
 build/
 dist/
 mowen-mcp
+mowen.db

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"mcp-mowen/service"
 
 	"github.com/bytedance/gopkg/util/logger"
@@ -13,8 +12,12 @@ func main() {
 		"mcp-mowen",
 		"1.0.0",
 	)
+	logger.Info("初始化数据库...")
+	if err := service.InitSQLite(); err != nil {
+		logger.Fatalf("数据库初始化失败: %v", err)
+	}
 
-	fmt.Println("开始注册工具...")
+	logger.Info("开始注册工具...")
 	service.RegisterAllTools(s)
 
 	logger.Info("启动墨问MCP服务器...")

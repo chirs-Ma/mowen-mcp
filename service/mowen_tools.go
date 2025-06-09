@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/bytedance/gopkg/util/logger"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -258,6 +260,15 @@ func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	if noteID == "" {
 		noteID = "未知ID"
 	}
+	go func() {
+		// 存入数据库
+		summary := ""
+		if success, err := SaveNoteToSQLite(noteID, paragraphsStr, summary); !success {
+			logger.Info("保存笔记到数据库失败", "error", err, "noteID", noteID)
+		} else {
+			logger.Info("笔记已成功保存到数据库", "noteID", noteID)
+		}
+	}()
 
 	resultText := fmt.Sprintf("✅ 笔记创建成功！\n\n笔记ID: %s\n段落数: %d\n自动发布: %t\n标签: %s",
 		noteID, len(paragraphs), autoPublish, strings.Join(tags, ", "))
@@ -419,6 +430,144 @@ func SetNotePrivacy(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 	return mcp.NewToolResultText(responseText), nil
 }
 
+// 分析笔记内容
+// SearchNote 查询笔记功能
+func SearchNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// 解析请求参数
+	var queryType string
+	var startDate, endDate string
+	var specificDate string
+
+	if queryTypeArg, exists := request.Params.Arguments["query_type"]; exists {
+		if qt, ok := queryTypeArg.(string); ok {
+			queryType = qt
+		}
+	}
+
+	if startDateArg, exists := request.Params.Arguments["start_date"]; exists {
+		if sd, ok := startDateArg.(string); ok {
+			startDate = sd
+		}
+	}
+
+	if endDateArg, exists := request.Params.Arguments["end_date"]; exists {
+		if ed, ok := endDateArg.(string); ok {
+			endDate = ed
+		}
+	}
+
+	if specificDateArg, exists := request.Params.Arguments["specific_date"]; exists {
+		if sd, ok := specificDateArg.(string); ok {
+			specificDate = sd
+		}
+	}
+
+	nowDate := time.Now()
+	var results []NoteRecord
+	var err error
+
+	// 根据查询类型执行不同的查询
+	switch queryType {
+	case "specific_date":
+		// 查询特定日期的笔记
+		if specificDate == "" {
+			specificDate = nowDate.Format("2006-01-02")
+		}
+		results, err = SearchByDate(specificDate)
+
+	case "date_range":
+		// 查询日期范围内的笔记
+		if startDate == "" || endDate == "" {
+			return mcp.NewToolResultError("日期范围查询需要提供开始日期和结束日期"), nil
+		}
+		results, err = SearchByDateRange(startDate, endDate)
+
+	case "this_week":
+		// 查询本周的笔记
+		weekday := int(nowDate.Weekday())
+		if weekday == 0 { // Sunday
+			weekday = 7
+		}
+		startOfWeek := nowDate.AddDate(0, 0, -(weekday - 1))
+		endOfWeek := startOfWeek.AddDate(0, 0, 6)
+		results, err = SearchByDateRange(
+			startOfWeek.Format("2006-01-02"),
+			endOfWeek.Format("2006-01-02"),
+		)
+
+	case "this_month":
+		// 查询本月的笔记
+		startOfMonth := time.Date(nowDate.Year(), nowDate.Month(), 1, 0, 0, 0, 0, nowDate.Location())
+		endOfMonth := startOfMonth.AddDate(0, 1, -1)
+		results, err = SearchByDateRange(
+			startOfMonth.Format("2006-01-02"),
+			endOfMonth.Format("2006-01-02"),
+		)
+
+	case "last_week":
+		// 查询上周的笔记
+		weekday := int(nowDate.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		startOfLastWeek := nowDate.AddDate(0, 0, -(weekday - 1 + 7))
+		endOfLastWeek := startOfLastWeek.AddDate(0, 0, 6)
+		results, err = SearchByDateRange(
+			startOfLastWeek.Format("2006-01-02"),
+			endOfLastWeek.Format("2006-01-02"),
+		)
+
+	case "last_month":
+		// 查询上月的笔记
+		startOfLastMonth := time.Date(nowDate.Year(), nowDate.Month()-1, 1, 0, 0, 0, 0, nowDate.Location())
+		endOfLastMonth := startOfLastMonth.AddDate(0, 1, -1)
+		results, err = SearchByDateRange(
+			startOfLastMonth.Format("2006-01-02"),
+			endOfLastMonth.Format("2006-01-02"),
+		)
+
+	case "today":
+		// 查询今天的笔记
+		results, err = SearchByDate(nowDate.Format("2006-01-02"))
+
+	default:
+		// 默认查询今天的笔记
+		results, err = SearchByDate(nowDate.Format("2006-01-02"))
+	}
+
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("查询笔记失败: %v", err)), nil
+	}
+
+	// 格式化查询结果
+	if len(results) == 0 {
+		return mcp.NewToolResultText("📝 未找到符合条件的笔记"), nil
+	}
+
+	var resultText strings.Builder
+	resultText.WriteString(fmt.Sprintf("📝 找到 %d 条笔记:\n\n", len(results)))
+
+	for i, note := range results {
+		resultText.WriteString(fmt.Sprintf("**%d. 笔记 %s**\n", i+1, note.NoteID))
+		resultText.WriteString(fmt.Sprintf("创建时间: %s\n", note.CreatedAt))
+
+		// 显示内容摘要（前100个字符）
+		content := note.Content
+		if len(content) > 100 {
+			content = content[:100] + "..."
+		}
+		resultText.WriteString(fmt.Sprintf("内容摘要: %s\n", content))
+
+		if note.Summary != "" {
+			resultText.WriteString(fmt.Sprintf("总结: %s\n", note.Summary))
+		}
+
+		resultText.WriteString("\n")
+	}
+
+	return mcp.NewToolResultText(resultText.String()), nil
+}
+
 // 所有墨问相关的MCP工具
 // 创建笔记工具
 var CreateNoteTool = mcp.NewTool("create_note",
@@ -467,6 +616,23 @@ var SetNotePrivacyTool = mcp.NewTool("set_note_privacy",
 	),
 )
 
+// 搜索笔记工具
+var SearchNoteTool = mcp.NewTool("search_note",
+	mcp.WithDescription("查询笔记功能，支持多种时间查询模式：特定日期、日期范围、今天、本周、本月、上周、上月等"),
+	mcp.WithString("query_type",
+		mcp.Description("查询类型：specific_date(特定日期)、date_range(日期范围)、 today(今天)、this_week(本周)、this_month(本月)、last_week(上周)、last_month(上月)"),
+	),
+	mcp.WithString("specific_date",
+		mcp.Description("特定日期，格式：YYYY-MM-DD，用于specific_date查询类型"),
+	),
+	mcp.WithString("start_date",
+		mcp.Description("开始日期，格式：YYYY-MM-DD，用于date_range查询类型"),
+	),
+	mcp.WithString("end_date",
+		mcp.Description("结束日期，格式：YYYY-MM-DD，用于date_range查询类型"),
+	),
+)
+
 // 适配器函数，将我们的函数签名转换为 ToolHandlerFunc 期望的签名
 func createNoteHandler(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
 	request := mcp.CallToolRequest{}
@@ -486,8 +652,15 @@ func setNotePrivacyHandler(arguments map[string]interface{}) (*mcp.CallToolResul
 	return SetNotePrivacy(context.Background(), request)
 }
 
+func searchNoteHandler(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = arguments
+	return SearchNote(context.Background(), request)
+}
+
 func RegisterAllTools(s *server.MCPServer) {
 	s.AddTool(CreateNoteTool, createNoteHandler)
 	s.AddTool(EditNoteTool, editNoteHandler)
 	s.AddTool(SetNotePrivacyTool, setNotePrivacyHandler)
+	s.AddTool(SearchNoteTool, searchNoteHandler)
 }
