@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/bytedance/gopkg/util/logger"
@@ -84,32 +83,27 @@ func InitSQLite() error {
 	return sqliteInitErr
 }
 
-// SaveToSQLite 将数据保存到SQLite数据库
-func SaveToSQLite(rows []string) (bool, error) {
+// SaveNoteToSQLite 将笔记数据保存到SQLite数据库
+func SaveNoteToSQLite(noteID, content, summary string) (bool, error) {
 	if err := InitSQLite(); err != nil {
 		return false, fmt.Errorf("SQLite初始化失败: %v", err)
 	}
 
-	if len(rows) == 0 {
-		logger.Debug("没有数据需要保存到SQLite")
-		return true, nil
+	if noteID == "" || content == "" {
+		logger.Debug("笔记ID或内容为空，跳过保存")
+		return false, fmt.Errorf("笔记ID和内容不能为空")
 	}
 
-	placeholders := make([]string, len(rows))
-	args := make([]any, len(rows))
-	for i, row := range rows {
-		placeholders[i] = "(?)"
-		args[i] = row
-	}
+	// 构建插入SQL语句
+	insertSQL := fmt.Sprintf("INSERT INTO %s (note_id, content, summary) VALUES (?, ?, ?)", dbTable)
 
-	insertSQL := fmt.Sprintf("INSERT INTO %s (table_name) VALUES %s",
-		dbTable, strings.Join(placeholders, ","))
-
-	_, err := sqliteDB.Exec(insertSQL, args...)
+	// 执行插入
+	_, err := sqliteDB.Exec(insertSQL, noteID, content, summary)
 	if err != nil {
-		return false, fmt.Errorf("批量插入数据失败: %v", err)
+		return false, fmt.Errorf("保存笔记数据失败: %v", err)
 	}
-	logger.Infof("成功保存数据到SQLite: %s", insertSQL)
+
+	logger.Infof("成功保存笔记数据到SQLite，noteID: %s, contentLength: %d", noteID, len(content))
 	return true, nil
 }
 
@@ -146,7 +140,7 @@ func SearchByDateRange(startDate, endDate string) ([]NoteRecord, error) {
 	return results, nil
 }
 
-// SearchByDate 根据日期查询（支持模糊匹配）
+// SearchByDate 根据日期查询
 func SearchByDate(date string) ([]NoteRecord, error) {
 	if err := InitSQLite(); err != nil {
 		return nil, fmt.Errorf("SQLite初始化失败: %v", err)
@@ -205,28 +199,4 @@ func CloseSQLite() {
 		sqliteDB.Close()
 		sqliteDB = nil
 	}
-}
-
-// SaveNoteToSQLite 将笔记数据保存到SQLite数据库
-func SaveNoteToSQLite(noteID, content, summary string) (bool, error) {
-	if err := InitSQLite(); err != nil {
-		return false, fmt.Errorf("SQLite初始化失败: %v", err)
-	}
-
-	if noteID == "" || content == "" {
-		logger.Debug("笔记ID或内容为空，跳过保存")
-		return false, fmt.Errorf("笔记ID和内容不能为空")
-	}
-
-	// 构建插入SQL语句
-	insertSQL := fmt.Sprintf("INSERT INTO %s (note_id, content, summary) VALUES (?, ?, ?)", dbTable)
-
-	// 执行插入
-	_, err := sqliteDB.Exec(insertSQL, noteID, content, summary)
-	if err != nil {
-		return false, fmt.Errorf("保存笔记数据失败: %v", err)
-	}
-
-	logger.Infof("成功保存笔记数据到SQLite，noteID: %s, contentLength: %d", noteID, len(content))
-	return true, nil
 }
