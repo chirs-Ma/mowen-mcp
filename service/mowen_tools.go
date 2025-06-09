@@ -138,7 +138,7 @@ func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	}
 
 	var paragraphs []Paragraph
-	if err := json.Unmarshal([]byte(paragraphsStr), &paragraphs); err != nil {
+	if err = json.Unmarshal([]byte(paragraphsStr), &paragraphs); err != nil {
 		return mcp.NewToolResultText(fmt.Sprintf("❌ paragraphs JSON解析错误: %v", err)), nil
 	}
 
@@ -147,13 +147,13 @@ func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	tagsStr, _ := args["tags"].(string)
 	var tags []string
 	if tagsStr != "" {
-		if err := json.Unmarshal([]byte(tagsStr), &tags); err != nil {
+		if err = json.Unmarshal([]byte(tagsStr), &tags); err != nil {
 			tags = []string{} // 如果解析失败，使用空数组
 		}
 	}
 
 	// 参数验证
-	if err := validateRichNoteParagraphs(paragraphs); err != nil {
+	if err = validateRichNoteParagraphs(paragraphs); err != nil {
 		errorMsg := fmt.Sprintf(`❌ 参数格式错误！
 
 正确的paragraphs格式示例：
@@ -297,12 +297,12 @@ func EditNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolRe
 	}
 
 	var paragraphs []Paragraph
-	if err := json.Unmarshal([]byte(paragraphsStr), &paragraphs); err != nil {
+	if err = json.Unmarshal([]byte(paragraphsStr), &paragraphs); err != nil {
 		return mcp.NewToolResultText(fmt.Sprintf("❌ paragraphs JSON解析错误: %v", err)), nil
 	}
 
 	// 参数验证
-	if err := validateRichNoteParagraphs(paragraphs); err != nil {
+	if err = validateRichNoteParagraphs(paragraphs); err != nil {
 		errorMsg := fmt.Sprintf(`❌ 参数格式错误！
 
 正确的paragraphs格式示例：

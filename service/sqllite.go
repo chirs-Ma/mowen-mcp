@@ -21,11 +21,13 @@ type NoteRecord struct {
 	CreatedAt string `json:"created_at"`
 }
 
-var dbName = "mowen.db" // 修改为不带路径前缀的文件名
-var dbTable = "mowen"
-var sqliteDB *sql.DB
-var sqliteOnce sync.Once
-var sqliteInitErr error
+var (
+	dbName        = "mowen.db" // 修改为不带路径前缀的文件名
+	dbTable       = "mowen"
+	sqliteDB      *sql.DB
+	sqliteOnce    sync.Once
+	sqliteInitErr error
+)
 
 // InitSQLite 初始化SQLite数据库连接
 func InitSQLite() error {
@@ -130,7 +132,7 @@ func SearchByDateRange(startDate, endDate string) ([]NoteRecord, error) {
 	var results []NoteRecord
 	for rows.Next() {
 		var record NoteRecord
-		err := rows.Scan(&record.ID, &record.NoteID, &record.Content, &record.Summary, &record.CreatedAt)
+		err = rows.Scan(&record.ID, &record.NoteID, &record.Content, &record.Summary, &record.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("扫描结果失败: %v", err)
 		}
@@ -163,7 +165,7 @@ func SearchByDate(date string) ([]NoteRecord, error) {
 	var results []NoteRecord
 	for rows.Next() {
 		var record NoteRecord
-		err := rows.Scan(&record.ID, &record.NoteID, &record.Content, &record.Summary, &record.CreatedAt)
+		err = rows.Scan(&record.ID, &record.NoteID, &record.Content, &record.Summary, &record.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("扫描结果失败: %v", err)
 		}
