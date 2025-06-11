@@ -44,15 +44,12 @@ type Privacy struct {
 }
 
 // SettingsForPrivacy 用于设置隐私的Settings结构
-type SettingsForPrivacy struct {
-	Privacy Privacy `json:"privacy"`
-}
-
-// SetNotePrivacyParams 设置笔记隐私的参数
 type SetNotePrivacyParams struct {
-	NoteID   string              `json:"noteId"`
-	Section  int                 `json:"section"`
-	Settings *SettingsForPrivacy `json:"settings"`
+	NoteID   string `json:"noteId"`
+	Section  int    `json:"section"`
+	Settings struct {
+		Privacy Privacy `json:"privacy"`
+	} `json:"settings"`
 }
 
 // NoteAtom 表示笔记的原子结构，对应墨问API的NoteAtom格式
@@ -393,7 +390,9 @@ func SetNotePrivacy(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 		}
 	}
 
-	settings := &SettingsForPrivacy{
+	settings := struct {
+		Privacy Privacy `json:"privacy"`
+	}{
 		Privacy: privacy,
 	}
 
@@ -530,6 +529,11 @@ func SearchNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 		// 查询今天的笔记
 		results, err = SearchByDate(nowDate.Format("2006-01-02"))
 
+	case "yesterday":
+		// 查询昨天的笔记
+		yesterday := nowDate.AddDate(0, 0, -1)
+		results, err = SearchByDate(yesterday.Format("2006-01-02"))
+
 	default:
 		// 默认查询今天的笔记
 		results, err = SearchByDate(nowDate.Format("2006-01-02"))
@@ -571,10 +575,10 @@ func SearchNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 // 所有墨问相关的MCP工具
 // 创建笔记工具
 var CreateNoteTool = mcp.NewTool("create_note",
-	mcp.WithDescription("创建一篇新的墨问笔记。支持富文本格式，包括加粗、高亮、链接等格式。可以设置自动发布和标签。"),
+	mcp.WithDescription("创建一篇新的墨问笔记。支持多种内容块，包括段落、引用、图片、音频、PDF和内嵌笔记。可以设置自动发布和标签。"),
 	mcp.WithString("paragraphs",
 		mcp.Required(),
-		mcp.Description("富文本段落列表JSON字符串，每个段落包含多个文本节点。格式：[{\"texts\": [{\"text\": \"内容\", \"bold\": true, \"highlight\": true, \"link\": \"https://example.com\"}]}]"),
+		mcp.Description("内容块列表JSON字符串。格式示例: [{'type':'paragraph','texts':[{'text':'Hello'}]}, {'type':'image','attrs':{'uuid':'file-uuid'}}]"),
 	),
 	mcp.WithBoolean("auto_publish",
 		mcp.Description("是否自动发布笔记。true表示立即发布，false表示保存为草稿"),
@@ -586,14 +590,14 @@ var CreateNoteTool = mcp.NewTool("create_note",
 
 // 编辑笔记工具
 var EditNoteTool = mcp.NewTool("edit_note",
-	mcp.WithDescription("编辑已存在的笔记内容。此操作会完全替换笔记的原有内容，而不是追加内容。"),
+	mcp.WithDescription("编辑已存在的笔记内容。此操作会完全替换笔记的原有内容。支持多种内容块。"),
 	mcp.WithString("note_id",
 		mcp.Required(),
-		mcp.Description("要编辑的笔记ID，通常是创建笔记时返回的ID"),
+		mcp.Description("要编辑的笔记ID"),
 	),
 	mcp.WithString("paragraphs",
 		mcp.Required(),
-		mcp.Description("富文本段落列表JSON字符串，每个段落包含多个文本节点。将完全替换原有笔记内容。"),
+		mcp.Description("新的内容块列表JSON字符串。将完全替换原有笔记内容。"),
 	),
 )
 
@@ -618,9 +622,9 @@ var SetNotePrivacyTool = mcp.NewTool("set_note_privacy",
 
 // 搜索笔记工具
 var SearchNoteTool = mcp.NewTool("search_note",
-	mcp.WithDescription("查询笔记功能，支持多种时间查询模式：特定日期、日期范围、今天、本周、本月、上周、上月等"),
+	mcp.WithDescription("查询笔记功能，支持多种时间查询模式：特定日期、日期范围、今天、昨天、本周、本月、上周、上月等"),
 	mcp.WithString("query_type",
-		mcp.Description("查询类型：specific_date(特定日期)、date_range(日期范围)、 today(今天)、this_week(本周)、this_month(本月)、last_week(上周)、last_month(上月)"),
+		mcp.Description("查询类型：specific_date(特定日期)、date_range(日期范围)、 today(今天)、yesterday(昨天)、this_week(本周)、this_month(本月)、last_week(上周)、last_month(上月)"),
 	),
 	mcp.WithString("specific_date",
 		mcp.Description("特定日期，格式：YYYY-MM-DD，用于specific_date查询类型"),

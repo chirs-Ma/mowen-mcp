@@ -19,6 +19,8 @@ const (
 	APIEditNote = "/api/open/api/v1/note/edit"
 	// 设置笔记接口
 	APISetNote = "/api/open/api/v1/note/set"
+	// 获取上传授权信息接口
+	APIUploadPrepare = "/api/open/api/v1/upload/prepare"
 )
 
 // 基础URL常量
@@ -151,4 +153,52 @@ func (c *MowenClient) PostRequest(path string, payload interface{}) (*APIRespons
 	}
 
 	return apiResponse, nil
+}
+
+// UploadPrepareRequest 获取上传授权信息请求结构
+type UploadPrepareRequest struct {
+	FileType int    `json:"fileType"`           // 文件类型：1-图片 2-音频 3-PDF
+	FileName string `json:"fileName,omitempty"` // 文件名称：可选（未填时，系统生成）
+}
+
+// UploadPrepareResponseForm 获取上传授权信息响应中的表单结构
+// 根据用户提供的截图，form是一个map[string]string
+type UploadPrepareResponseForm map[string]string
+
+// UploadPrepareResponseData 获取上传授权信息响应中的数据结构
+// 假设响应直接是 { "form": { ... } }
+// 如果有其他层级，比如 { "data": { "form": { ... } } }，则需要调整
+type UploadPrepareResponseData struct {
+	Form UploadPrepareResponseForm `json:"form"`
+}
+
+// UploadPrepareResponse 获取上传授权信息响应结构
+type UploadPrepareResponse struct {
+	Form UploadPrepareResponseForm `json:"form"`
+}
+
+// UploadPrepare 获取上传授权信息
+// 参数:
+// - payload: 请求体数据，类型为 UploadPrepareRequest
+// 返回:
+// - *UploadPrepareResponse: 获取上传授权信息的响应体
+// - error: 错误信息
+func (c *MowenClient) UploadPrepare(payload *UploadPrepareRequest) (*UploadPrepareResponse, error) {
+	apiResponse, err := c.PostRequest(APIUploadPrepare, payload)
+	if err != nil {
+		return nil, fmt.Errorf("获取上传授权信息失败: %w", err)
+	}
+
+	if apiResponse.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("获取上传授权信息API请求失败，状态码: %d, 响应: %s", apiResponse.StatusCode, apiResponse.RawBody)
+	}
+
+	var uploadPrepareResponse UploadPrepareResponse
+	// 直接从RawBody解析，因为APIResponse.Body是 map[string]interface{}
+	// 并且根据截图，响应体直接是 {"form": {...map...}}
+	if err := json.Unmarshal([]byte(apiResponse.RawBody), &uploadPrepareResponse); err != nil {
+		return nil, fmt.Errorf("解析上传授权信息响应失败: %w. 原始响应: %s", err, apiResponse.RawBody)
+	}
+
+	return &uploadPrepareResponse, nil
 }
