@@ -13,22 +13,26 @@ import (
 )
 
 // TextNode 表示富文本中的一个文本节点
-type TextNode struct {
-	Text      string `json:"text"`
-	Bold      bool   `json:"bold,omitempty"`
-	Highlight bool   `json:"highlight,omitempty"`
-	Link      string `json:"link,omitempty"`
+
+// CreateNoteParams 创建笔记的参数
+type CreateNoteParams struct {
+	Body     *MowenDocument `json:"body,omitempty"`
+	Settings *Settings      `json:"settings,omitempty"`
 }
 
-// QuoteNode 表示引用块节点
-type QuoteNode struct {
-	Texts []TextNode `json:"texts"`
+// Settings 笔记设置
+type Settings struct {
+	AutoPublish *bool    `json:"autoPublish,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Privacy     *string  `json:"privacy,omitempty"`
+	NoShare     *bool    `json:"noShare,omitempty"`
+	ExpireAt    *int64   `json:"expireAt,omitempty"`
 }
 
-// Paragraph 表示一个段落或引用块
-type Paragraph struct {
-	Texts []TextNode `json:"texts"`
-	Type  string     `json:"type,omitempty"` // "paragraph" 或 "quote"
+// EditNoteParams 编辑笔记的参数
+type EditNoteParams struct {
+	NoteID     string          `json:"note_id"`
+	Paragraphs []MowenDocument `json:"paragraphs"`
 }
 
 // PrivacyRule 隐私规则
@@ -52,73 +56,6 @@ type SetNotePrivacyParams struct {
 	} `json:"settings"`
 }
 
-// NoteAtom 表示笔记的原子结构，对应墨问API的NoteAtom格式
-type NoteAtom struct {
-	Attrs   map[string]string `json:"attrs,omitempty"`
-	Content []NoteAtom        `json:"content,omitempty"`
-	Marks   []NoteAtom        `json:"marks,omitempty"`
-	Text    *string           `json:"text,omitempty"`
-	Type    *string           `json:"type,omitempty"`
-}
-
-// CreateNoteParams 创建笔记的参数
-type CreateNoteParams struct {
-	Body     *NoteAtom `json:"body,omitempty"`
-	Settings *Settings `json:"settings,omitempty"`
-}
-
-// Body 笔记内容
-type Body struct {
-	Attrs   map[string]string `json:"attrs,omitempty"`
-	Content []Body            `json:"content,omitempty"`
-	Marks   []Body            `json:"marks,omitempty"`
-	Text    *string           `json:"text,omitempty"`
-	Type    *string           `json:"type,omitempty"`
-}
-
-// Settings 笔记设置
-type Settings struct {
-	AutoPublish *bool    `json:"autoPublish,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Privacy     *string  `json:"privacy,omitempty"`
-	NoShare     *bool    `json:"noShare,omitempty"`
-	ExpireAt    *int64   `json:"expireAt,omitempty"`
-}
-
-// EditNoteParams 编辑笔记的参数
-type EditNoteParams struct {
-	NoteID     string      `json:"note_id"`
-	Paragraphs []Paragraph `json:"paragraphs"`
-}
-
-// validateRichNoteParagraphs 验证富文本笔记段落格式
-func validateRichNoteParagraphs(paragraphs []Paragraph) error {
-	if len(paragraphs) == 0 {
-		return fmt.Errorf("段落列表不能为空")
-	}
-
-	for i, para := range paragraphs {
-		// 验证段落类型
-		if para.Type != "" && para.Type != "paragraph" && para.Type != "quote" {
-			return fmt.Errorf("第%d个段落的类型必须是 'paragraph' 或 'quote'", i+1)
-		}
-
-		if len(para.Texts) == 0 {
-			return fmt.Errorf("第%d个段落的texts字段不能为空", i+1)
-		}
-
-		for j, text := range para.Texts {
-			if text.Text == "" {
-				return fmt.Errorf("第%d个段落第%d个文本节点的text字段不能为空", i+1, j+1)
-			}
-			if text.Link != "" && !strings.HasPrefix(text.Link, "http") {
-				return fmt.Errorf("第%d个段落第%d个文本节点的link必须是有效的URL", i+1, j+1)
-			}
-		}
-	}
-	return nil
-}
-
 // 创建一篇新的墨问笔记
 func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// 创建墨问客户端
@@ -134,8 +71,8 @@ func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 		return mcp.NewToolResultText("❌ paragraphs参数必须是JSON字符串"), nil
 	}
 
-	var paragraphs []Paragraph
-	if err = json.Unmarshal([]byte(paragraphsStr), &paragraphs); err != nil {
+	var blocks []ContentBlock
+	if err = json.Unmarshal([]byte(paragraphsStr), &blocks); err != nil {
 		return mcp.NewToolResultText(fmt.Sprintf("❌ paragraphs JSON解析错误: %v", err)), nil
 	}
 
@@ -150,78 +87,14 @@ func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	}
 
 	// 参数验证
-	if err = validateRichNoteParagraphs(paragraphs); err != nil {
-		errorMsg := fmt.Sprintf(`❌ 参数格式错误！
-
-正确的paragraphs格式示例：
-[
-    {
-        "texts": [
-            {"text": "普通文本"},
-            {"text": "加粗文本", "bold": true},
-            {"text": "高亮文本", "highlight": true},
-            {"text": "链接文本", "link": "https://example.com"}
-        ]
-    }
-]
-
-错误详情: %v`, err)
-		return mcp.NewToolResultText(errorMsg), nil
+	if len(blocks) == 0 {
+		return mcp.NewToolResultText("❌ 段落列表不能为空"), nil
 	}
 
-	// 构建请求参数 - 转换为新的API格式
-	// 创建根节点
-	// 构建请求参数 - 创建符合NoteAtom规范的根节点
-	docType := "doc"
-	body := &NoteAtom{
-		Type:    &docType,
-		Content: []NoteAtom{},
-	}
-
-	// 将paragraphs转换为NoteAtom格式
-	for _, para := range paragraphs {
-		// 确定段落类型，默认为paragraph
-		paraType := "paragraph"
-		if para.Type != "" {
-			paraType = para.Type
-		}
-
-		paragraphNode := NoteAtom{
-			Type:    &paraType,
-			Content: []NoteAtom{},
-		}
-
-		// 处理段落中的文本节点
-		for _, textNode := range para.Texts {
-			textType := "text"
-			textAtom := NoteAtom{
-				Type:  &textType,
-				Text:  &textNode.Text,
-				Marks: []NoteAtom{},
-			}
-
-			// 添加样式标记
-			if textNode.Bold {
-				boldType := "bold"
-				textAtom.Marks = append(textAtom.Marks, NoteAtom{Type: &boldType})
-			}
-			if textNode.Highlight {
-				highlightType := "highlight"
-				textAtom.Marks = append(textAtom.Marks, NoteAtom{Type: &highlightType})
-			}
-			if textNode.Link != "" {
-				linkType := "link"
-				linkAttrs := map[string]string{"href": textNode.Link}
-				textAtom.Marks = append(textAtom.Marks, NoteAtom{
-					Type:  &linkType,
-					Attrs: linkAttrs,
-				})
-			}
-
-			paragraphNode.Content = append(paragraphNode.Content, textAtom)
-		}
-
-		body.Content = append(body.Content, paragraphNode)
+	// 使用ConvertToMowenFormat函数进行数据转换
+	mowenDoc, err := ConvertToMowenFormat(client, blocks)
+	if err != nil {
+		return mcp.NewToolResultText(fmt.Sprintf("❌ 转换文档格式失败: %v", err)), nil
 	}
 
 	// 构建设置
@@ -231,7 +104,7 @@ func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	}
 
 	payload := CreateNoteParams{
-		Body:     body,
+		Body:     &mowenDoc,
 		Settings: settings,
 	}
 
@@ -268,7 +141,7 @@ func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	}()
 
 	resultText := fmt.Sprintf("✅ 笔记创建成功！\n\n笔记ID: %s\n段落数: %d\n自动发布: %t\n标签: %s",
-		noteID, len(paragraphs), autoPublish, strings.Join(tags, ", "))
+		noteID, len(blocks), autoPublish, strings.Join(tags, ", "))
 
 	return mcp.NewToolResultText(resultText), nil
 }
@@ -293,35 +166,26 @@ func EditNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolRe
 		return mcp.NewToolResultText("❌ paragraphs参数必须是JSON字符串"), nil
 	}
 
-	var paragraphs []Paragraph
-	if err = json.Unmarshal([]byte(paragraphsStr), &paragraphs); err != nil {
+	var blocks []ContentBlock
+	if err = json.Unmarshal([]byte(paragraphsStr), &blocks); err != nil {
 		return mcp.NewToolResultText(fmt.Sprintf("❌ paragraphs JSON解析错误: %v", err)), nil
 	}
 
 	// 参数验证
-	if err = validateRichNoteParagraphs(paragraphs); err != nil {
-		errorMsg := fmt.Sprintf(`❌ 参数格式错误！
+	if len(blocks) == 0 {
+		return mcp.NewToolResultText("❌ 段落列表不能为空"), nil
+	}
 
-正确的paragraphs格式示例：
-[
-    {
-        "texts": [
-            {"text": "普通文本"},
-            {"text": "加粗文本", "bold": true},
-            {"text": "高亮文本", "highlight": true},
-            {"text": "链接文本", "link": "https://example.com"}
-        ]
-    }
-]
-
-错误详情: %v`, err)
-		return mcp.NewToolResultText(errorMsg), nil
+	// 使用ConvertToMowenFormat函数进行数据转换
+	mowenDoc, err := ConvertToMowenFormat(client, blocks)
+	if err != nil {
+		return mcp.NewToolResultText(fmt.Sprintf("❌ 转换文档格式失败: %v", err)), nil
 	}
 
 	// 构建请求参数
 	payload := EditNoteParams{
 		NoteID:     noteID,
-		Paragraphs: paragraphs,
+		Paragraphs: []MowenDocument{mowenDoc},
 	}
 
 	// 调用API编辑笔记
@@ -336,7 +200,7 @@ func EditNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolRe
 	}
 
 	resultText := fmt.Sprintf("✅ 笔记编辑成功！\n\n笔记ID: %s\n段落数: %d",
-		noteID, len(paragraphs))
+		noteID, len(blocks))
 
 	return mcp.NewToolResultText(resultText), nil
 }
@@ -578,7 +442,62 @@ var CreateNoteTool = mcp.NewTool("create_note",
 	mcp.WithDescription("创建一篇新的墨问笔记。支持多种内容块，包括段落、引用、图片、音频、PDF和内嵌笔记。可以设置自动发布和标签。"),
 	mcp.WithString("paragraphs",
 		mcp.Required(),
-		mcp.Description("内容块列表JSON字符串。格式示例: [{'type':'paragraph','texts':[{'text':'Hello'}]}, {'type':'image','attrs':{'uuid':'file-uuid'}}]"),
+		mcp.Description(`
+		富文本段落列表，每个段落包含多个文本节点。支持文本、引用、内链笔记和文件。
+        
+        段落类型：
+        1. 普通段落（默认）：{"texts": [...]}
+        2. 引用段落：{"type": "quote", "texts": [...]}
+        3. 内链笔记：{"type": "note", "note_id": "笔记ID"}
+        4. 文件段落：{"type": "file", "file_type": "image|audio|pdf", "source_type": "local|url", "source_path": "路径", "metadata": {...}}
+        
+        格式示例：
+        [
+            {
+                "texts": [
+                    {"text": "这是普通文本"},
+                    {"text": "这是加粗文本", "bold": true},
+                    {"text": "这是高亮文本", "highlight": true},
+                    {"text": "这是链接", "link": "https://example.com"}
+                ]
+            },
+            {
+                "type": "quote",
+                "texts": [
+                    {"text": "这是引用段落"},
+                    {"text": "支持富文本", "bold": true}
+                ]
+            },
+            {
+                "type": "note",
+                "note_id": "VPrWsE_-P0qwrFUOygGs8"
+            },
+            {
+                "type": "file",
+                "file_type": "image",
+                "source_type": "local",
+                "source_path": "/path/to/image.jpg",
+                "metadata": {
+                    "alt": "图片描述",
+                    "align": "center"
+                }
+            },
+            {
+                "type": "file",
+                "file_type": "audio",
+                "source_type": "url",
+                "source_path": "https://example.com/audio.mp3",
+                "metadata": {
+                    "show_note": "00:00 开场\\n01:30 主要内容"
+                }
+            },
+            {
+                "texts": [
+                    {"text": "第二段内容"}
+                ]
+            }
+        ]
+		`),
 	),
 	mcp.WithBoolean("auto_publish",
 		mcp.Description("是否自动发布笔记。true表示立即发布，false表示保存为草稿"),

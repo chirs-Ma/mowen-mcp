@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -201,4 +205,102 @@ func (c *MowenClient) UploadPrepare(payload *UploadPrepareRequest) (*UploadPrepa
 	}
 
 	return &uploadPrepareResponse, nil
+}
+
+// UploadFile 上传文件到OSS
+// 参数:
+// - form: 从UploadPrepare获取的表单数据
+// - filePath: 要上传的文件路径
+// 返回:
+// - *APIResponse: 上传响应
+// - error: 错误信息
+func (c *MowenClient) UploadFile(form UploadPrepareResponseForm, filePath string) (*APIResponse, error) {
+	// 获取上传URL（endpoint字段）
+	uploadURL, exists := form["endpoint"]
+	if !exists {
+		return nil, fmt.Errorf("form中缺少endpoint字段")
+	}
+
+	// 创建multipart表单
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+
+	// 添加form中的所有字段（除了endpoint）
+	for key, value := range form {
+		if key != "endpoint" {
+			_ = writer.WriteField(key, value)
+		}
+	}
+
+	// 打开文件
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer file.Close()
+
+	mimeType := mime.TypeByExtension(filepath.Ext(filePath))
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filepath.Base(filePath)))
+	h.Set("Content-Type", mimeType)
+
+	// 创建文件表单字段
+	part, err := writer.CreatePart(h)
+	if err != nil {
+		return nil, fmt.Errorf("创建文件表单字段失败: %w", err)
+	}
+
+	// 复制文件内容到表单
+	_, err = io.Copy(part, file)
+	if err != nil {
+		return nil, fmt.Errorf("复制文件内容失败: %w", err)
+	}
+
+	// 关闭writer
+	err = writer.Close()
+	if err != nil {
+		return nil, fmt.Errorf("关闭multipart writer失败: %w", err)
+	}
+
+	// 创建HTTP请求
+	req, err := http.NewRequest("POST", uploadURL, payload)
+	if err != nil {
+		return nil, fmt.Errorf("创建上传请求失败: %w", err)
+	}
+
+	// 设置Content-Type
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// 发送请求
+	resp, err := c.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("发送上传请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 读取响应体
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取上传响应失败: %w", err)
+	}
+
+	// 构建响应结构
+	apiResponse := &APIResponse{
+		StatusCode: resp.StatusCode,
+		RawBody:    string(respBody),
+	}
+
+	// 尝试解析JSON响应体
+	if len(respBody) > 0 {
+		var jsonBody map[string]interface{}
+		if err := json.Unmarshal(respBody, &jsonBody); err == nil {
+			apiResponse.Body = jsonBody
+		}
+	}
+
+	return apiResponse, nil
 }
