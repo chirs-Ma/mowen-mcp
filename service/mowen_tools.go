@@ -56,6 +56,12 @@ type SetNotePrivacyParams struct {
 	} `json:"settings"`
 }
 
+type UploadURLFile struct {
+	Type     int    `json:"type"`
+	URL      string `json:"url"`
+	FileName string `json:"fileName"`
+}
+
 // 创建一篇新的墨问笔记
 func CreateNote(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// 创建墨问客户端

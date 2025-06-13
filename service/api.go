@@ -25,6 +25,8 @@ const (
 	APISetNote = "/api/open/api/v1/note/set"
 	// 获取上传授权信息接口
 	APIUploadPrepare = "/api/open/api/v1/upload/prepare"
+	// 上传文件接口
+	APIUploadFileByURL = "/api/open/api/v1/upload/url"
 )
 
 // 基础URL常量

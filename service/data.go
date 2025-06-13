@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -91,9 +92,18 @@ func ConvertToMowenFormat(client *MowenClient, blocks []ContentBlock) (MowenDocu
 			// 文件段落
 			switch block.FileType {
 			case "image":
-				fileUUID, err := generateFileUUID(client, block.SourcePath)
-				if err != nil {
-					return doc, fmt.Errorf("上传图片文件失败: %w", err)
+				var fileUUID string
+				var err error
+				if block.SourceType == "url" {
+					fileUUID, err = uploadFileFromURL(client, block.SourcePath, block.FileType, block.SourcePath)
+					if err != nil {
+						return doc, fmt.Errorf("通过 URL 上传图片文件失败: %w", err)
+					}
+				} else {
+					fileUUID, err = generateFileUUID(client, block.SourcePath)
+					if err != nil {
+						return doc, fmt.Errorf("上传本地图片文件失败: %w", err)
+					}
 				}
 				attrs := map[string]interface{}{
 					"uuid": fileUUID,
@@ -108,9 +118,18 @@ func ConvertToMowenFormat(client *MowenClient, blocks []ContentBlock) (MowenDocu
 				})
 
 			case "audio":
-				fileUUID, err := generateFileUUID(client, block.SourcePath)
-				if err != nil {
-					return doc, fmt.Errorf("上传音频文件失败: %w", err)
+				var fileUUID string
+				var err error
+				if block.SourceType == "url" {
+					fileUUID, err = uploadFileFromURL(client, block.SourcePath, block.FileType, block.SourcePath)
+					if err != nil {
+						return doc, fmt.Errorf("通过 URL 上传音频文件失败: %w", err)
+					}
+				} else {
+					fileUUID, err = generateFileUUID(client, block.SourcePath)
+					if err != nil {
+						return doc, fmt.Errorf("上传本地音频文件失败: %w", err)
+					}
 				}
 				attrs := map[string]interface{}{
 					"audio-uuid": fileUUID,
@@ -129,9 +148,18 @@ func ConvertToMowenFormat(client *MowenClient, blocks []ContentBlock) (MowenDocu
 				})
 
 			case "pdf":
-				fileUUID, err := generateFileUUID(client, block.SourcePath)
-				if err != nil {
-					return doc, fmt.Errorf("上传PDF文件失败: %w", err)
+				var fileUUID string
+				var err error
+				if block.SourceType == "url" {
+					fileUUID, err = uploadFileFromURL(client, block.SourcePath, block.FileType, block.SourcePath)
+					if err != nil {
+						return doc, fmt.Errorf("通过 URL 上传PDF文件失败: %w", err)
+					}
+				} else {
+					fileUUID, err = generateFileUUID(client, block.SourcePath)
+					if err != nil {
+						return doc, fmt.Errorf("上传本地PDF文件失败: %w", err)
+					}
 				}
 				attrs := map[string]interface{}{
 					"uuid": fileUUID,
@@ -156,6 +184,48 @@ func ConvertToMowenFormat(client *MowenClient, blocks []ContentBlock) (MowenDocu
 	}
 
 	return doc, nil
+}
+
+// uploadFileFromURL 通过 URL 上传文件并返回文件 UUID
+func uploadFileFromURL(client *MowenClient, fileURL string, fileTypeStr string, fileName string) (string, error) {
+	var apiFileType int
+	switch fileTypeStr {
+	case "image":
+		apiFileType = 0 // 假设 0 代表图片，根据实际 API 定义调整
+	case "audio":
+		apiFileType = 1 // 假设 1 代表音频
+	case "pdf":
+		apiFileType = 2 // 假设 2 代表 PDF
+	default:
+		return "", fmt.Errorf("不支持的文件类型: %s", fileTypeStr)
+	}
+
+	payload := map[string]interface{}{
+		"fileType": apiFileType,
+		"url":      fileURL,
+		"fileName": fileName,
+	}
+
+	resp, err := client.PostRequest(APIUploadFileByURL, payload)
+	if err != nil {
+		return "", fmt.Errorf("通过 URL 上传文件失败: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("上传文件失败，状态码: %d", resp.StatusCode)
+	}
+
+	// 从响应体中提取文件ID
+	var uploadResp map[string]interface{}
+	if err := json.Unmarshal([]byte(resp.Body["file"].(string)), &uploadResp); err != nil {
+		return "", fmt.Errorf("解析上传文件响应失败: %w", err)
+	}
+
+	fileID, ok := uploadResp["fileId"].(string)
+	if !ok {
+		return "", fmt.Errorf("上传文件响应中缺少 'fileId' 字段")
+	}
+
+	return fileID, nil
 }
 
 // convertTextsToMowenFormat 将文本节点列表转换为墨问格式
