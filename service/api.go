@@ -118,7 +118,7 @@ func (c *MowenClient) PostRequest(path string, payload interface{}) (*APIRespons
 			return nil, fmt.Errorf("序列化请求体失败: %w", err)
 		}
 		// 打印请求体用于调试
-		fmt.Printf("发送的请求体: %s\n", string(jsonData))
+		fmt.Printf(string(jsonData))
 	}
 
 	// 创建HTTP请求
